@@ -84,3 +84,106 @@ export function mateInTwoLines(pieces: Piece[], side: PieceColor): MateInTwoLine
 export function toughestReply(line: MateInTwoLine): Move {
   return line.replies.reduce((best, item) => (item.mates.length < best.mates.length ? item : best)).reply;
 }
+
+// ───────── 通用 N 步殺（用於三步殺、隨機應手與隨機出題） ─────────
+
+const keyOf = (pieces: Piece[]) =>
+  pieces.map(p => p.color[0] + p.type[0] + p.type[1] + p.row + p.col).sort().join('|');
+
+// 將軍的走法排在前面，讓「存在」型搜尋更快找到解。
+function ordered(pieces: Piece[], side: PieceColor): Move[] {
+  const defender = other(side);
+  const checks: Move[] = [];
+  const quiet: Move[] = [];
+  for (const move of legalMoves(pieces, side)) {
+    (isKingInCheck(applyMove(pieces, move), defender) ? checks : quiet).push(move);
+  }
+  return [...checks, ...quiet];
+}
+
+export class MateSearch {
+  private memoWithin = new Map<string, boolean>();
+  private memoForced = new Map<string, boolean>();
+  constructor(readonly side: PieceColor = 'red') {}
+
+  get cacheSize() { return this.memoWithin.size + this.memoForced.size; }
+
+  // 輪到 side 走：能否在 n 步（含）以內將死對方
+  within(pieces: Piece[], n: number): boolean {
+    if (n <= 0) return false;
+    const key = n + ':' + keyOf(pieces);
+    const cached = this.memoWithin.get(key);
+    if (cached !== undefined) return cached;
+    let found = false;
+    for (const move of ordered(pieces, this.side)) {
+      if (this.accepts(pieces, move, n)) { found = true; break; }
+    }
+    this.memoWithin.set(key, found);
+    return found;
+  }
+
+  // 輪到對方走（我方剛走完）：不論對方怎麼應，我方都能在 n 步以內將死
+  forced(afterMove: Piece[], n: number): boolean {
+    const defender = other(this.side);
+    if (givesCheckmate(afterMove, defender)) return true;
+    if (n <= 0) return false;
+    const key = n + ':' + keyOf(afterMove);
+    const cached = this.memoForced.get(key);
+    if (cached !== undefined) return cached;
+    const replies = legalMoves(afterMove, defender);
+    // 對方無子可動但未被將軍（困斃）不視為本題的將死
+    let ok = replies.length > 0;
+    for (const reply of replies) {
+      if (!this.within(applyMove(afterMove, reply), n)) { ok = false; break; }
+    }
+    this.memoForced.set(key, ok);
+    return ok;
+  }
+
+  // 在剩餘 n 步內，走 move 是否仍保證將死（含直接將死）
+  accepts(pieces: Piece[], move: Move, n: number): boolean {
+    const after = applyMove(pieces, move);
+    if (givesCheckmate(after, other(this.side))) return true;
+    return n > 1 && this.forced(after, n - 1);
+  }
+
+  // 所有「n 步以內保證將死」的第一步
+  solutions(pieces: Piece[], n: number): Move[] {
+    return legalMoves(pieces, this.side).filter(move => this.accepts(pieces, move, n));
+  }
+
+  // 最少需要幾步將死（超過 limit 回傳 null）
+  shortest(pieces: Piece[], limit: number): number | null {
+    for (let n = 1; n <= limit; n++) if (this.within(pieces, n)) return n;
+    return null;
+  }
+
+  // 對方應手中，讓我方剩餘正解最少的一手（最頑強）
+  toughest(afterMove: Piece[], n: number): Move | null {
+    let best: Move | null = null;
+    let bestCount = Infinity;
+    for (const reply of legalMoves(afterMove, other(this.side))) {
+      const count = this.solutions(applyMove(afterMove, reply), n).length;
+      if (count < bestCount) { best = reply; bestCount = count; }
+    }
+    return best;
+  }
+
+  // 從 pieces 出發、n 步殺的一條主線（我方走第一個正解；對方走最頑強應手）
+  mainLine(pieces: Piece[], n: number): Move[] {
+    const line: Move[] = [];
+    let current = pieces;
+    for (let left = n; left >= 1; left--) {
+      const move = this.solutions(current, left)[0];
+      if (!move) break;
+      line.push(move);
+      current = applyMove(current, move);
+      if (givesCheckmate(current, other(this.side))) break;
+      const reply = this.toughest(current, left - 1);
+      if (!reply) break;
+      line.push(reply);
+      current = applyMove(current, reply);
+    }
+    return line;
+  }
+}

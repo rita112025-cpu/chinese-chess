@@ -1,11 +1,11 @@
 import type { Piece, PieceColor, PieceType } from './types';
-import { mateInOneMoves, mateInTwoLines, type Move, type MateInTwoLine } from './puzzleEngine';
+import type { Move } from './puzzleEngine';
 
 // 殘局挑戰題庫。座標沿用棋盤規則：row 0 在上方（黑方底線），row 9 在下方（紅方底線）；col 0–8 由左到右。
 // 每題都是「紅先」。題目與主解由 tests/puzzles.test.ts 以規則引擎驗證。
 
-type Code = 'K' | 'A' | 'E' | 'H' | 'R' | 'C' | 'P';
-type PieceSpec = ['r' | 'b', Code, number, number];
+export type Code = 'K' | 'A' | 'E' | 'H' | 'R' | 'C' | 'P';
+export type PieceSpec = ['r' | 'b', Code, number, number];
 
 const types: Record<Code, PieceType> = {
   K: 'king', A: 'advisor', E: 'elephant', H: 'horse', R: 'rook', C: 'cannon', P: 'pawn',
@@ -14,17 +14,18 @@ const types: Record<Code, PieceType> = {
 export interface Puzzle {
   id: string;
   title: string;
-  mateIn: 1 | 2;
+  mateIn: 1 | 2 | 3;
   // 一句話題目說明
   goal: string;
-  // 提示（第一階段）。兩步殺的第二步使用 hintSecond。
-  hint: string;
-  hintSecond?: string;
+  // 文字提示：hints[i] 對應紅方第 i+1 步（不足時沿用最後一句）
+  hints: string[];
   // 走錯時顯示的一句提示
   retry: string;
   pieces: PieceSpec[];
   // 主解：紅、（黑、紅）…。供「解答重播」與提示使用；其他正解由引擎另行判定。
   solution: Move[];
+  // 隨機題的種子（固定題沒有）
+  seed?: number;
 }
 
 const m = (fr: number, fc: number, tr: number, tc: number): Move => ({
@@ -35,7 +36,7 @@ export const puzzles: Puzzle[] = [
   {
     id: 'p1', title: '臥槽馬', mateIn: 1,
     goal: '紅先，一步殺。黑將被自己的雙士擋住左右，只剩一條出路。',
-    hint: '黑將唯一的出路在第二橫線；紅車已經守住那裡，馬可以從側面將軍。',
+    hints: ['黑將唯一的出路在第二橫線；紅車已經守住那裡，馬可以從側面將軍。'],
     retry: '這步沒有將死——先找出黑將還能往哪裡逃。',
     pieces: [
       ['r', 'K', 9, 3], ['r', 'R', 1, 0], ['r', 'H', 4, 4],
@@ -46,7 +47,7 @@ export const puzzles: Puzzle[] = [
   {
     id: 'p2', title: '馬後炮', mateIn: 1,
     goal: '紅先，一步殺。炮已經瞄準第二橫線，缺的是一個「炮架」。',
-    hint: '讓馬走到能將軍的位置，同時成為炮的炮架。',
+    hints: ['讓馬走到能將軍的位置，同時成為炮的炮架。'],
     retry: '這步沒有將死——想想怎樣讓馬與炮同時發揮作用。',
     pieces: [
       ['r', 'K', 9, 3], ['r', 'H', 3, 5], ['r', 'C', 1, 7],
@@ -57,7 +58,7 @@ export const puzzles: Puzzle[] = [
   {
     id: 'p3', title: '重炮', mateIn: 1,
     goal: '紅先，一步殺。兩門炮同在中路，兵守著關鍵一格。',
-    hint: '把另一門炮也調到中路，讓前面的炮成為後炮的炮架。',
+    hints: ['把另一門炮也調到中路，讓前面的炮成為後炮的炮架。'],
     retry: '這步沒有將死——中路還有一門炮可以調動。',
     pieces: [
       ['r', 'K', 9, 3], ['r', 'P', 1, 3], ['r', 'C', 5, 5], ['r', 'C', 1, 4],
@@ -68,8 +69,10 @@ export const puzzles: Puzzle[] = [
   {
     id: 'p4', title: '引將入網', mateIn: 2,
     goal: '紅先，兩步殺。第一步不必將軍，但黑方只剩一種走法。',
-    hint: '黑方除了將以外，其餘棋子都動不了；先讓炮去中路，看看黑將被迫往哪裡走。',
-    hintSecond: '黑將被引到了第二橫線，用車從側面封住中路。',
+    hints: [
+      '黑方除了將以外，其餘棋子都動不了；先讓炮去中路，看看黑將被迫往哪裡走。',
+      '黑將被引到了第二橫線，用車從側面封住中路。',
+    ],
     retry: '這步不夠緊——試著找出一步讓黑方別無選擇的走法。',
     pieces: [
       ['r', 'K', 9, 5], ['r', 'C', 5, 3], ['r', 'R', 4, 8], ['r', 'R', 4, 3],
@@ -80,8 +83,10 @@ export const puzzles: Puzzle[] = [
   {
     id: 'p5', title: '棄車引將', mateIn: 2,
     goal: '紅先，兩步殺。先犧牲一車，把黑將引到出路上。',
-    hint: '用車吃掉黑士並將軍；另一輛車守著這一格，黑將不能吃回。',
-    hintSecond: '黑將被迫走上第二橫線，另一輛車從同一條直線追上去。',
+    hints: [
+      '用車吃掉黑士並將軍；另一輛車守著這一格，黑將不能吃回。',
+      '黑將被迫走上第二橫線，另一輛車從同一條直線追上去。',
+    ],
     retry: '這步沒有成殺——試試把車直接沉到黑方底線。',
     pieces: [
       ['r', 'K', 8, 4], ['r', 'H', 2, 4], ['r', 'R', 2, 3], ['r', 'R', 6, 3],
@@ -89,9 +94,115 @@ export const puzzles: Puzzle[] = [
     ],
     solution: [m(2, 3, 0, 3), m(0, 4, 1, 4), m(6, 3, 1, 3)],
   },
+  {
+    id: 'p6', title: '兵破士', mateIn: 1,
+    goal: '紅先，一步殺。紅車已經守住第二橫線，黑將左右被雙士擋住。',
+    hints: ['吃掉黑將旁邊的士，同時將軍；兵或車都可以做到。'],
+    retry: '這步沒有將死——黑將身邊的士是突破口。',
+    pieces: [
+      ['r', 'K', 8, 3], ['r', 'P', 0, 6], ['r', 'R', 1, 3], ['r', 'R', 5, 5],
+      ['b', 'K', 0, 4], ['b', 'A', 0, 3], ['b', 'A', 0, 5],
+    ],
+    solution: [m(0, 6, 0, 5)],
+  },
+  {
+    id: 'p7', title: '炮鎮中宮', mateIn: 1,
+    goal: '紅先，一步殺。紅馬已經站在黑將正前方。',
+    hints: ['把炮調到中路，讓紅馬當炮架；紅車保護著紅馬。'],
+    retry: '這步沒有將死——中路的紅馬可以當炮架。',
+    pieces: [
+      ['r', 'K', 8, 4], ['r', 'R', 1, 7], ['r', 'H', 1, 4], ['r', 'C', 7, 5],
+      ['b', 'K', 0, 4], ['b', 'A', 0, 3], ['b', 'A', 0, 5],
+    ],
+    solution: [m(7, 5, 7, 4)],
+  },
+  {
+    id: 'p8', title: '側翼馬', mateIn: 1,
+    goal: '紅先，一步殺。黑將躲在九宮右上角，雙炮已經就位。',
+    hints: ['用馬從右側將軍，黑將的退路已被兩門炮控制。'],
+    retry: '這步沒有將死——試試讓馬從側面將軍。',
+    pieces: [
+      ['r', 'K', 8, 4], ['r', 'C', 1, 3], ['r', 'C', 2, 4], ['r', 'H', 2, 5],
+      ['b', 'K', 0, 5], ['b', 'A', 1, 4], ['b', 'E', 0, 6],
+    ],
+    solution: [m(2, 5, 1, 7)],
+  },
+  {
+    id: 'p9', title: '沉底炮', mateIn: 2,
+    goal: '紅先，兩步殺。先在底線將軍，再依黑方的應手收網。',
+    hints: [
+      '把炮沉到黑方底線，借黑士當炮架將軍。',
+      '黑將上移就從中路封殺；黑士上移，底線就空出來了。',
+    ],
+    retry: '這步不夠緊——試試借黑士當炮架將軍。',
+    pieces: [
+      ['r', 'K', 8, 5], ['r', 'C', 3, 7], ['r', 'H', 0, 1], ['r', 'R', 6, 5],
+      ['b', 'K', 0, 4], ['b', 'A', 0, 3], ['b', 'A', 0, 5],
+    ],
+    solution: [m(3, 7, 0, 7), m(0, 4, 1, 4), m(6, 5, 6, 4)],
+  },
+  {
+    id: 'p10', title: '角馬逼宮', mateIn: 2,
+    goal: '紅先，兩步殺。一匹馬藏在黑方底角，紅車在左翼待命。',
+    hints: [
+      '用底角的馬將軍，逼黑將離開底線。',
+      '黑將上到第二橫線，用車橫向封殺。',
+    ],
+    retry: '這步不夠緊——底角的馬可以先將軍。',
+    pieces: [
+      ['r', 'K', 7, 4], ['r', 'H', 0, 8], ['r', 'H', 4, 4], ['r', 'R', 2, 0],
+      ['b', 'K', 0, 4], ['b', 'A', 0, 3], ['b', 'A', 0, 5],
+    ],
+    solution: [m(0, 8, 1, 6), m(0, 4, 1, 4), m(2, 0, 1, 0)],
+  },
+  {
+    id: 'p11', title: '車炮連將', mateIn: 3,
+    goal: '紅先，三步殺。黑方能動的只有將，先限制它，再連續將軍。',
+    hints: [
+      '讓中路的炮前進到黑將前方兩格：黑士一動就會被將軍，黑將只能上移。',
+      '黑將上到第二橫線，用車從右側橫向將軍。',
+      '黑將退回底線，用左邊的炮借黑士當炮架將軍。',
+    ],
+    retry: '這步不夠緊——先讓黑方只剩一種走法。',
+    pieces: [
+      ['r', 'K', 7, 4], ['r', 'C', 5, 4], ['r', 'C', 1, 2], ['r', 'R', 7, 8],
+      ['b', 'K', 0, 4], ['b', 'A', 0, 3], ['b', 'A', 0, 5],
+    ],
+    solution: [m(5, 4, 2, 4), m(0, 4, 1, 4), m(7, 8, 1, 8), m(1, 4, 0, 4), m(1, 2, 0, 2)],
+  },
+  {
+    id: 'p12', title: '雙馬連環', mateIn: 3,
+    goal: '紅先，三步殺。第一步不必將軍，黑方怎麼應都逃不掉。',
+    hints: [
+      '把底線的馬跳到邊路，準備從側面將軍。',
+      '能直接將死就將死；不能的話，先用中路的馬封住黑將的退路。',
+      '最後用馬完成將死。',
+    ],
+    retry: '這步不夠緊——底線的馬可以先調到邊路。',
+    pieces: [
+      ['r', 'K', 8, 3], ['r', 'H', 0, 7], ['r', 'H', 3, 4], ['r', 'C', 2, 1],
+      ['b', 'K', 0, 4], ['b', 'A', 0, 3], ['b', 'A', 0, 5],
+    ],
+    solution: [m(0, 7, 2, 8), m(0, 4, 1, 4), m(3, 4, 2, 2), m(1, 4, 0, 4), m(2, 8, 1, 6)],
+  },
+  {
+    id: 'p13', title: '車炮馬聯攻', mateIn: 3,
+    goal: '紅先，三步殺。黑將在九宮右上角，紅方車、炮、馬各據一方。',
+    hints: [
+      '把炮調到黑將所在的直線，或用車吃掉中士，兩種走法都能成殺。',
+      '繼續將軍，不給黑將喘息的機會。',
+      '用馬完成最後的將死。',
+    ],
+    retry: '這步不夠緊——試試讓炮或車直接威脅黑將。',
+    pieces: [
+      ['r', 'K', 9, 4], ['r', 'C', 7, 1], ['r', 'R', 1, 7], ['r', 'H', 4, 3],
+      ['b', 'K', 0, 5], ['b', 'A', 1, 4], ['b', 'E', 0, 6],
+    ],
+    solution: [m(7, 1, 7, 5), m(0, 5, 0, 4), m(1, 7, 1, 4), m(0, 4, 0, 3), m(7, 5, 7, 3)],
+  },
 ];
 
-export function buildPieces(puzzle: Puzzle): Piece[] {
+export function buildPieces(puzzle: Pick<Puzzle, 'id' | 'pieces'>): Piece[] {
   return puzzle.pieces.map(([side, code, row, col], index) => ({
     id: puzzle.id + '-' + side + code + index,
     type: types[code],
@@ -100,16 +211,7 @@ export function buildPieces(puzzle: Puzzle): Piece[] {
   }));
 }
 
-export interface PuzzleAnalysis {
-  // 所有被接受的第一步（引擎判定的全部正解）
-  firstMoves: Move[];
-  // 兩步殺才有：每個正解第一步對應的全部黑方應手與將死走法
-  lines: MateInTwoLine[];
-}
+export const codeOf = (type: PieceType): Code =>
+  (Object.keys(types) as Code[]).find(code => types[code] === type) as Code;
 
-export function analyzePuzzle(puzzle: Puzzle): PuzzleAnalysis {
-  const pieces = buildPieces(puzzle);
-  if (puzzle.mateIn === 1) return { firstMoves: mateInOneMoves(pieces, 'red'), lines: [] };
-  const lines = mateInTwoLines(pieces, 'red');
-  return { firstMoves: lines.map(line => line.first), lines };
-}
+export const stepLabel = (n: number) => ['', '一步殺', '兩步殺', '三步殺'][n] ?? n + '步殺';

@@ -1,92 +1,132 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type { Piece } from '../src/types';
 import { isKingInCheck } from '../src/gameLogic';
-import {
-  applyMove, givesCheckmate, isLegal, legalMoves, mateInOneMoves, mateInTwoLines, sameMove, toughestReply,
-} from '../src/puzzleEngine';
-import { analyzePuzzle, buildPieces, puzzles } from '../src/puzzles';
+import { MateSearch, applyMove, givesCheckmate, isLegal, legalMoves, sameMove, type Move } from '../src/puzzleEngine';
+import { buildPieces, puzzles, type Puzzle } from '../src/puzzles';
+import { generatePuzzle } from '../src/generator';
+import { runEngine } from '../src/engineCore';
 
-test('題庫：5 題，3 道一步殺與 2 道兩步殺', () => {
-  assert.equal(puzzles.length, 5);
-  assert.equal(puzzles.filter(p => p.mateIn === 1).length, 3);
-  assert.equal(puzzles.filter(p => p.mateIn === 2).length, 2);
-  assert.equal(new Set(puzzles.map(p => p.id)).size, 5);
+// 窮舉驗證：紅方在 n 步內能將死時，回傳被接受的走法；並且對每一個被接受的走法，
+// 逐一走過黑方「全部」合法應手，確認應手後紅方仍能在剩餘步數內將死。
+function verifyTree(pieces: Piece[], n: number, search: MateSearch): number {
+  const accepted = search.solutions(pieces, n);
+  assert.ok(accepted.length > 0, '剩 ' + n + ' 步時必須至少有一個正解');
+  let leaves = 0;
+  for (const move of accepted) {
+    const after = applyMove(pieces, move);
+    if (givesCheckmate(after, 'black')) { leaves++; continue; }
+    assert.ok(n > 1, '最後一步必須直接將死');
+    const replies = legalMoves(after, 'black');
+    assert.ok(replies.length > 0, '黑方沒有應手卻未被將死（困斃）不算正解');
+    for (const reply of replies) leaves += verifyTree(applyMove(after, reply), n - 1, search);
+  }
+  return leaves;
+}
+
+// 驗證「不被接受」的走法確實無法保證在 n 步內將死：黑方至少有一種應手可以撐過剩餘步數。
+function verifyRejected(pieces: Piece[], n: number, search: MateSearch) {
+  const accepted = search.solutions(pieces, n);
+  for (const move of legalMoves(pieces, 'red')) {
+    if (accepted.some(a => sameMove(a, move))) continue;
+    const after = applyMove(pieces, move);
+    assert.equal(givesCheckmate(after, 'black'), false);
+    if (n === 1) continue;
+    const replies = legalMoves(after, 'black');
+    assert.ok(replies.length === 0 || replies.some(r => !search.within(applyMove(after, r), n - 1)));
+  }
+}
+
+function checkStart(puzzle: Puzzle) {
+  const pieces = buildPieces(puzzle);
+  assert.equal(pieces.filter(p => p.type === 'king').length, 2);
+  assert.equal(new Set(pieces.map(p => p.row + ',' + p.col)).size, pieces.length, '不可有兩顆棋子在同一格');
+  assert.equal(isKingInCheck(pieces, 'red'), false, '紅方起始不可被將軍（含將帥對面）');
+  assert.equal(isKingInCheck(pieces, 'black'), false, '黑方起始不可被將軍（含將帥對面）');
+  return pieces;
+}
+
+function checkSolution(puzzle: Puzzle) {
+  let pieces = buildPieces(puzzle);
+  const search = new MateSearch('red');
+  puzzle.solution.forEach((move: Move, i) => {
+    const side = i % 2 === 0 ? 'red' : 'black';
+    assert.ok(isLegal(pieces, side, move), '主解第 ' + (i + 1) + ' 手需為合法走法');
+    if (side === 'red') {
+      const left = puzzle.mateIn - i / 2;
+      assert.ok(search.solutions(pieces, left).some(m => sameMove(m, move)), '主解第 ' + (i + 1) + ' 手需被接受');
+    }
+    pieces = applyMove(pieces, move);
+  });
+  assert.equal(puzzle.solution.length, puzzle.mateIn * 2 - 1, '主解長度需為 2n-1 手');
+  assert.ok(givesCheckmate(pieces, 'black'), '主解最後需將死');
+}
+
+test('題庫：13 題（6 道一步殺、4 道兩步殺、3 道三步殺），編號不重複', () => {
+  assert.equal(puzzles.length, 13);
+  assert.equal(puzzles.filter(p => p.mateIn === 1).length, 6);
+  assert.equal(puzzles.filter(p => p.mateIn === 2).length, 4);
+  assert.equal(puzzles.filter(p => p.mateIn === 3).length, 3);
+  assert.equal(new Set(puzzles.map(p => p.id)).size, puzzles.length);
+  for (const p of puzzles) assert.ok(p.hints.length >= 1 && p.retry.length > 0);
 });
 
 for (const puzzle of puzzles) {
-  test(puzzle.id + ' ' + puzzle.title + '：起始盤面合法', () => {
-    const pieces = buildPieces(puzzle);
-    const kings = pieces.filter(p => p.type === 'king');
-    assert.equal(kings.length, 2);
-    const cells = new Set(pieces.map(p => p.row + ',' + p.col));
-    assert.equal(cells.size, pieces.length, '不可有兩顆棋子在同一格');
-    assert.equal(isKingInCheck(pieces, 'red'), false, '紅方起始不可被將軍（含將帥對面）');
-    assert.equal(isKingInCheck(pieces, 'black'), false, '黑方起始不可被將軍（含將帥對面）');
-    assert.ok(legalMoves(pieces, 'black').length > 0 || puzzle.mateIn === 2, '黑方起始需有走法或為引將題');
+  const label = puzzle.id + ' ' + puzzle.title + '（' + puzzle.mateIn + ' 步殺）';
+  test(label + '：起始合法、恰好 ' + puzzle.mateIn + ' 步殺、主解正確', () => {
+    const pieces = checkStart(puzzle);
+    assert.equal(new MateSearch('red').shortest(pieces, puzzle.mateIn), puzzle.mateIn, '不得存在更短的殺法');
+    checkSolution(puzzle);
   });
-
-  test(puzzle.id + ' ' + puzzle.title + '：主解逐步合法並以將死收尾', () => {
-    let pieces = buildPieces(puzzle);
-    puzzle.solution.forEach((move, i) => {
-      const side = i % 2 === 0 ? 'red' : 'black';
-      assert.ok(isLegal(pieces, side, move), '第 ' + (i + 1) + ' 手需為合法走法');
-      pieces = applyMove(pieces, move);
-    });
-    assert.equal(puzzle.solution.length, puzzle.mateIn * 2 - 1);
-    assert.ok(givesCheckmate(pieces, 'black'));
-  });
-
-  test(puzzle.id + ' ' + puzzle.title + '：引擎判定的正解包含主解，且題目屬實', () => {
+  test(label + '：每個正解對黑方全部合法應手都能將死；其餘走法都被拒絕', () => {
     const pieces = buildPieces(puzzle);
-    const { firstMoves } = analyzePuzzle(puzzle);
-    assert.ok(firstMoves.length >= 1);
-    assert.ok(firstMoves.some(m => sameMove(m, puzzle.solution[0])), '主解第一步需被接受');
-    const oneMove = mateInOneMoves(pieces, 'red');
-    if (puzzle.mateIn === 1) assert.ok(oneMove.length >= 1);
-    else assert.equal(oneMove.length, 0, '兩步殺題不得存在一步殺');
+    const search = new MateSearch('red');
+    const leaves = verifyTree(pieces, puzzle.mateIn, search);
+    assert.ok(leaves > 0);
+    verifyRejected(pieces, puzzle.mateIn, search);
   });
 }
 
-for (const puzzle of puzzles.filter(p => p.mateIn === 2)) {
-  test(puzzle.id + ' ' + puzzle.title + '：每個正解第一步，對黑方「全部」合法應手都有將死', () => {
-    const pieces = buildPieces(puzzle);
-    const lines = mateInTwoLines(pieces, 'red');
-    assert.ok(lines.length >= 1);
-    for (const line of lines) {
-      const afterFirst = applyMove(pieces, line.first);
-      const replies = legalMoves(afterFirst, 'black');
-      assert.equal(line.replies.length, replies.length, '應手數需與規則引擎的全部合法應手一致');
-      for (const reply of replies) {
-        const mates = mateInOneMoves(applyMove(afterFirst, reply), 'red');
-        assert.ok(mates.length >= 1, '應手後必須有將死');
-        for (const mate of mates) {
-          assert.ok(givesCheckmate(applyMove(applyMove(afterFirst, reply), mate), 'black'));
-        }
-      }
-      assert.ok(isLegal(afterFirst, 'black', toughestReply(line)));
-    }
-    // 主解的黑方應手必須是合法應手
-    const afterMain = applyMove(pieces, puzzle.solution[0]);
-    assert.ok(isLegal(afterMain, 'black', puzzle.solution[1]));
-  });
-
-  test(puzzle.id + ' ' + puzzle.title + '：非正解的第一步不會被接受', () => {
-    const pieces = buildPieces(puzzle);
-    const accepted = analyzePuzzle(puzzle).firstMoves;
-    const wrong = legalMoves(pieces, 'red').filter(m => !accepted.some(a => sameMove(a, m)));
-    assert.ok(wrong.length > 0);
-    const forced = new Set(mateInTwoLines(pieces, 'red').map(l => JSON.stringify(l.first)));
-    for (const move of wrong) assert.ok(!forced.has(JSON.stringify(move)));
-  });
-}
-
-test('一步殺題：被接受的走法 = 引擎全部將死走法（多解皆收）', () => {
-  const p1 = puzzles[0];
-  const accepted = analyzePuzzle(p1).firstMoves;
-  assert.equal(accepted.length, 2, '第 1 題有兩個正解');
-  for (const puzzle of puzzles.filter(p => p.mateIn === 1)) {
-    const pieces = buildPieces(puzzle);
-    const all = legalMoves(pieces, 'red').filter(m => givesCheckmate(applyMove(pieces, m), 'black'));
-    assert.deepEqual(analyzePuzzle(puzzle).firstMoves, all);
+test('多解：第 1 題、第 6 題、第 13 題各有兩個被接受的第一步', () => {
+  for (const id of ['p1', 'p6', 'p13']) {
+    const puzzle = puzzles.find(p => p.id === id)!;
+    assert.equal(new MateSearch('red').solutions(buildPieces(puzzle), puzzle.mateIn).length, 2, id);
   }
 });
+
+test('同題多種應手：第 9、12、13 題黑方在第一步後有多種合法應手', () => {
+  for (const id of ['p9', 'p12', 'p13']) {
+    const puzzle = puzzles.find(p => p.id === id)!;
+    const after = applyMove(buildPieces(puzzle), puzzle.solution[0]);
+    assert.ok(legalMoves(after, 'black').length >= 2, id);
+  }
+});
+
+test('引擎服務：隨機應手只回傳合法且仍可被將死的應手；最頑強模式走主解時沿用主解', () => {
+  const puzzle = puzzles.find(p => p.id === 'p9')!;
+  const after = applyMove(buildPieces(puzzle), puzzle.solution[0]);
+  const seen = new Set<string>();
+  for (const random of [0, 0.3, 0.6, 0.99]) {
+    const reply = runEngine({ type: 'reply', pieces: after, remaining: 1, mode: 'random', preferred: null, random }) as Move;
+    assert.ok(isLegal(after, 'black', reply));
+    assert.ok(new MateSearch('red').within(applyMove(after, reply), 1));
+    seen.add(JSON.stringify(reply));
+  }
+  assert.ok(seen.size >= 2, '隨機模式應能產生不同應手');
+  const tough = runEngine({ type: 'reply', pieces: after, remaining: 1, mode: 'toughest', preferred: puzzle.solution[1], random: 0 }) as Move;
+  assert.ok(sameMove(tough, puzzle.solution[1]));
+});
+
+for (const [mateIn, seeds] of [[1, [1, 2, 3, 4, 5]], [2, [11, 12, 13]], [3, [21]]] as const) {
+  test('隨機出題：' + mateIn + ' 步殺（種子 ' + seeds.join(', ') + '）皆通過完整驗證且可重現', () => {
+    for (const seed of seeds) {
+      const puzzle = generatePuzzle(seed, mateIn);
+      assert.equal(puzzle.mateIn, mateIn);
+      assert.deepEqual(generatePuzzle(seed, mateIn).pieces, puzzle.pieces, '同一種子需產生同一題');
+      const pieces = checkStart(puzzle);
+      assert.equal(new MateSearch('red').shortest(pieces, mateIn), mateIn);
+      checkSolution(puzzle);
+      verifyTree(pieces, mateIn, new MateSearch('red'));
+    }
+  });
+}

@@ -1,49 +1,19 @@
 import { useRef, useState } from 'react';
 import { BookOpen, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
-import type { GameState, Piece, Position } from './types';
-import { initializePieces, getPieceName, getValidMoves, isKingInCheck, isCheckmate } from './gameLogic';
+import type { GameState } from './types';
+import { initializePieces, getValidMoves, isKingInCheck, isCheckmate } from './gameLogic';
+import { Board, at, coordinate, name, sideName } from './Board';
+import PuzzleMode from './PuzzleMode';
 
 const initialState = (): GameState => ({
   pieces: initializePieces(), currentTurn: 'red', selectedPiece: null,
   validMoves: [], gameOver: false, winner: null, inCheck: null, moveHistory: [],
 });
 
-const sideName = { red: '紅方', black: '黑方' };
-const files = '一二三四五六七八九';
-const squares = Array.from({ length: 90 }, (_, index) => ({
-  row: Math.floor(index / 9), col: index % 9,
-}));
-const at = (position: Position, row: number, col: number) =>
-  position.row === row && position.col === col;
-const name = (piece: Piece) => getPieceName(piece.type, piece.color);
-const coordinate = ({ row, col }: Position) => files[8 - col] + '・' + (10 - row);
-const place = ({ row, col }: Position) => ({
-  left: ((30 + 56 * col) / 508 * 100) + '%',
-  top: ((30 + 56 * row) / 564 * 100) + '%',
-});
-
-function BoardLines() {
-  const lines = [
-    ...Array.from({length: 10}, (_, row) => 'M30 ' + (30 + 56 * row) + 'h448'),
-    ...Array.from({length: 7}, (_, index) => {
-      const x = 86 + 56 * index;
-      return 'M' + x + ' 30v224 M' + x + ' 310v224';
-    }),
-    'M30 30v504 M478 30v504 M198 30l112 112 M310 30l-112 112',
-    'M198 422l112 112 M310 422l-112 112',
-  ];
-  return <svg className="board-lines" viewBox="0 0 508 564" aria-hidden="true">
-    <rect x="24" y="24" width="460" height="516" fill="none" strokeWidth="0.65" />
-    <path d={lines.join(' ')} fill="none" strokeWidth="1.2" />
-    <path className="river" d="M31 255H477V309H31Z" />
-    <text x="139" y="293">楚 河</text>
-    <text x="370" y="293">漢 界</text>
-  </svg>;
-}
-
 function App() {
   const [game, setGame] = useState(initialState);
   const [replay, setReplay] = useState<number | null>(null);
+  const [mode, setMode] = useState<'play' | 'puzzle'>('play');
   const dialog = useRef<HTMLDialogElement>(null);
   const count = game.moveHistory.length;
   const steps = replay ?? count;
@@ -96,10 +66,15 @@ function App() {
       <div className="identity"><span className="seal" aria-hidden="true">弈</span>
         <div><h1>墨影棋院</h1><p>中國象棋</p></div>
       </div>
-      <span className="mode">同機雙人對弈</span>
+      <nav className="mode-tabs" aria-label="模式">
+        <button type="button" className="tab" aria-current={mode === 'play' ? 'page' : undefined}
+          onClick={() => setMode('play')}>對弈</button>
+        <button type="button" className="tab" aria-current={mode === 'puzzle' ? 'page' : undefined}
+          onClick={() => setMode('puzzle')}>殘局挑戰</button>
+      </nav>
     </header>
 
-    <main className="layout">
+    <main className="layout" hidden={mode !== 'play'}>
       <section className="table" aria-label="對局">
         <div className="table-heading">
           <div className="live-status" role="status">
@@ -110,29 +85,13 @@ function App() {
             <RotateCcw size={16} aria-hidden="true" /> 新局
           </button>
         </div>
-        <div className="frame">
-          <div className="board" aria-label="象棋棋盤">
-            <BoardLines />
-            {visiblePieces.map(piece => <span aria-hidden="true" key={piece.id} style={place(piece)}
-              className={'piece ' + piece.color +
-                (replay === null && game.selectedPiece?.id === piece.id ? ' selected' : '') +
-                (replay === null && game.inCheck === piece.color && piece.type === 'king' ? ' checked' : '')}>
-              {name(piece)}
-            </span>)}
-            {squares.map(({ row, col }) => {
-              const piece = visiblePieces.find(item => at(item, row, col));
-              const legal = replay === null && game.validMoves.some(move => at(move, row, col));
-              const previous = last && (at(last.from, row, col) || at(last.to, row, col));
-              const selected = replay === null && !!piece && game.selectedPiece?.id === piece.id;
-              return <button type="button" key={row * 9 + col} style={place({row, col})}
-                disabled={replay !== null || game.gameOver}
-                aria-pressed={selected}
-                aria-label={coordinate({row, col}) + (piece ? ' ' + sideName[piece.color] + name(piece) : ' 空位') + (legal ? ' 可走' : '')}
-                className={'square' + (legal ? (piece ? ' capture' : ' legal') : '') + (previous ? ' previous' : '')}
-                onClick={() => play(row, col)} />;
-            })}
-          </div>
-        </div>
+        <Board pieces={visiblePieces}
+          selectedId={replay === null ? game.selectedPiece?.id : null}
+          checkedColor={replay === null ? game.inCheck : null}
+          legal={replay === null ? game.validMoves : []}
+          marks={last ? [last.from, last.to] : []}
+          disabled={replay !== null || game.gameOver}
+          onSquare={play} />
         <p className="board-guide"><span className="hint-dot" /> 可走位置 <span className="hint-ring" /> 可吃子</p>
       </section>
 
@@ -168,6 +127,8 @@ function App() {
         </section>
       </aside>
     </main>
+
+    <PuzzleMode active={mode === 'puzzle'} />
 
     <dialog ref={dialog} aria-labelledby="reset-title">
       <h2 id="reset-title">重新開局？</h2>

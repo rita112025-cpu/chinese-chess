@@ -88,7 +88,34 @@ dialog::backdrop { background: #08140dcc; }
 dialog p { margin: 10px 0 16px; }
 .dialog-controls { justify-content: flex-end; }
 .primary { background: #a83d32; }
+[hidden] { display: none !important; }
+.mode-tabs { display: inline-flex; padding: 3px; gap: 3px; border: 1px solid var(--line); border-radius: 10px; background: #0000002e; }
+.tab { min-height: 40px; padding: 6px 14px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); white-space: nowrap; }
+.tab:hover { color: #f3e9d4; }
+.tab[aria-current] { background: #a83d32; color: #fff3d8; font-weight: 700; }
+.puzzle-picker { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.chip { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px;
+  padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: #ffffff0a; font-weight: 700; }
+.chip:hover { border-color: var(--gold); }
+.chip.current { background: #a83d32; border-color: #f1cf9b; color: #fff3d8; }
+.feedback { min-height: 3.1em; display: flex; align-items: center; margin-bottom: 10px; padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: #ffffff0a; line-height: 1.45; }
+.feedback.error { border-color: #e14635; background: #e1463524; color: #ffd2c9; }
+.feedback.success { border-color: #7dc59a; background: #7dc59a22; color: #d6f5e0; font-weight: 700; }
+.feedback.hint { border-color: var(--gold); background: #dbc18a1c; color: #f5e6bd; }
+.square.hinted::before { content: ""; position: absolute; inset: 4%; border-radius: 50%; border: 3px solid #f2c14e;
+  box-shadow: 0 0 10px #f2c14e; pointer-events: none; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 12px; }
+.actions .control { min-height: 44px; flex: 1 1 auto; }
+.actions .return { margin-left: 0; }
+.badge { flex: none; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--gold); color: var(--gold); font-size: .8125rem; }
+.puzzle-info .journal-heading { align-items: flex-start; }
+.goal { margin-top: 12px; line-height: 1.6; }
+.note { margin-top: 10px; line-height: 1.6; }
+.puzzle-guide ul { margin: 10px 0 0; padding-left: 1.2em; line-height: 1.7; font-size: .875rem; }
 @media (max-width: 730px) {
+  .mode-tabs { flex: none; }
+  .identity p { display: none; }
   .shell { max-width: 555px; padding-top: 15px; }
   .layout { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .masthead { margin-bottom: 13px; }
